@@ -90,7 +90,7 @@ derevanced_dl(){
 	patch "photomath" "derevanced" "morphe"
 	# Patch Strava:
 	get_patches_key "strava-derevanced"
-	get_apkpure "com.strava" "strava-arm64-v8a" "bundle"
+	get_apkpure "com.strava" "strava-arm64-v8a" "bundle" "arm64-v8a"
 	patch "strava-arm64-v8a" "derevanced" "morphe"
 }
 7() {

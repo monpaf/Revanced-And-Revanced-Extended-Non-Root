@@ -505,7 +505,7 @@ get_apk() {
 }
 
 get_apkpure() {
-	local pkg_name=$1 apk_name=$2 pkg_type=${3:-apk}
+	local pkg_name=$1 apk_name=$2 pkg_type=${3:-apk} nc=${4:-} sv=${5:-}
 	local html=""
 
 	local apps_json="./src/build/apps.json"
@@ -549,6 +549,29 @@ get_apkpure() {
 	download_url=$(echo "$html" | $pup 'a#download_link attr{href}' | head -1)
 	[[ -z "$download_url" ]] && \
 		download_url=$(echo "$html" | grep -oP '<a[^>]+id="download_link"[^>]+href="\Khttps://[^"]+' | head -1)
+
+	# Architecture-specific download (e.g. nc=arm64-v8a). APKPure exposes per-ABI links of the
+	# form d.apkpure.com/b/<APK|XAPK>/<pkg>?versionCode=<code>&nc=<abi>&sv=<sdk>. The default
+	# a#download_link resolves to the generic (32-bit) variant, so select the matching arch link.
+	if [[ -n "$nc" ]]; then
+		local btype="APK"
+		[[ "$pkg_type" == "bundle" || "$pkg_type" == "bundle_extract" ]] && btype="XAPK"
+		local arch_url
+		arch_url=$(echo "$html" | grep -oiP "https?://d\.apkpure\.com/b/${btype}/[^\"' <>]*nc=${nc}[^\"' <>]*" | head -1)
+		if [[ -z "$arch_url" ]]; then
+			# Fallback: build the link from a versionCode found on the page.
+			local vcode
+			vcode=$(echo "$html" | grep -oiP 'versioncode["[:space:]:=]+\K[0-9]{4,}' | head -1)
+			[[ -z "$vcode" ]] && vcode=$(echo "$download_url" | grep -oP 'versionCode=\K[0-9]+')
+			[[ -n "$vcode" ]] && arch_url="https://d.apkpure.com/b/${btype}/${pkg_name}?versionCode=${vcode}&nc=${nc}&sv=${sv:-26}"
+		fi
+		if [[ -n "$arch_url" ]]; then
+			green_log "[+] Selected $nc variant: $arch_url"
+			download_url="$arch_url"
+		else
+			yellow_log "[!] No $nc variant link found on page; falling back to default architecture"
+		fi
+	fi
 
 	if [[ -z "$download_url" ]]; then
 		red_log "[-] Could not find download link on APKPure"
