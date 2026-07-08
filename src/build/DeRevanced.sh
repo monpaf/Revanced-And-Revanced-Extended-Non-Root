@@ -80,14 +80,21 @@ derevanced_dl(){
 6() {
 	derevanced_dl
 	# Patch Photomath
-	get_patches_key "Photomath-derevanced"
-	get_apk "com.microblink.photomath" "photomath" "bundle_extract"
-	split_editor "photomath" "photomath"
-	patch "photomath" "derevanced" "morphe"
+	# get_patches_key "Photomath-derevanced"
+	# get_apk "com.microblink.photomath" "photomath" "bundle_extract"
+	# split_editor "photomath" "photomath"
+	# patch "photomath" "derevanced" "morphe"
 	# Patch Strava:
 	get_patches_key "strava-derevanced"
-	get_apkpure "com.strava" "strava-arm64-v8a" "bundle" "arm64-v8a"
-	patch "strava-arm64-v8a" "derevanced" "morphe"
+	get_apk_chplay "com.strava" "strava_splits" "bundle_extract"
+	split_editor "strava_splits" "strava" "derevanced" "morphe"
+	# get_patches_key "strava-derevanced"
+	# get_apk_chplay "com.strava" "strava" "bundle_extract"
+	# split_editor "strava" "strava" "include" "config.arm64_v8a"
+	# patch "strava" "derevanced" "morphe"
+	# get_patches_key "strava-derevanced"
+	# get_apkpure "com.strava" "strava-arm64-v8a" "bundle" "arm64-v8a"
+	# patch "strava-arm64-v8a" "derevanced" "morphe"
 }
 7() {
 	derevanced_dl

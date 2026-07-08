@@ -594,16 +594,12 @@ get_apkpure() {
 	[[ -z "$download_url" ]] && \
 		download_url=$(echo "$html" | grep -oP '<a[^>]+id="download_link"[^>]+href="\Khttps://[^"]+' | head -1)
 
-	# Architecture-specific download (e.g. nc=arm64-v8a). APKPure exposes per-ABI links of the
-	# form d.apkpure.com/b/<APK|XAPK>/<pkg>?versionCode=<code>&nc=<abi>&sv=<sdk>. The default
-	# a#download_link resolves to the generic (32-bit) variant, so select the matching arch link.
 	if [[ -n "$nc" ]]; then
 		local btype="APK"
 		[[ "$pkg_type" == "bundle" || "$pkg_type" == "bundle_extract" ]] && btype="XAPK"
 		local arch_url
 		arch_url=$(echo "$html" | grep -oiP "https?://d\.apkpure\.com/b/${btype}/[^\"' <>]*nc=${nc}[^\"' <>]*" | head -1)
 		if [[ -z "$arch_url" ]]; then
-			# Fallback: build the link from a versionCode found on the page.
 			local vcode
 			vcode=$(echo "$html" | grep -oiP 'versioncode["[:space:]:=]+\K[0-9]{4,}' | head -1)
 			[[ -z "$vcode" ]] && vcode=$(echo "$download_url" | grep -oP 'versionCode=\K[0-9]+')
@@ -657,7 +653,6 @@ get_apkpure() {
 	fi
 }
 
-# Download APK from Google Play Store via AuroraStore anonymous auth
 get_apk_chplay() {
 	local pkg_name=$1 apk_name=$2
 	local pkg_type=${3:-apk} dispenser_url=${4:-}
@@ -701,22 +696,13 @@ get_apk_chplay() {
 	green_log "[+] Successfully downloaded $apk_name (${dl_size} bytes)"
 
 	if [[ "$is_split" == "true" ]]; then
-		if [[ "$pkg_type" == "bundle_extract" ]]; then
-			green_log "[+] Extracting split APKs"
-			unzip "./download/$apk_name.apk" -d "./download/$apk_name" > /dev/null 2>&1
-		else
-			green_log "[+] Merging split APKs to standalone apk"
-			java -jar $APKEditor m -i "./download/$apk_name.apk" -o "./download/$apk_name.apk.merged" > /dev/null 2>&1
-			if [[ -f "./download/$apk_name.apk.merged" ]]; then
-				mv "./download/$apk_name.apk.merged" "./download/$apk_name.apk"
-			fi
-		fi
+		green_log "[+] Extracting split APKs into directory"
+		rm -rf "./download/$apk_name"
+		unzip "./download/$apk_name.apk" -d "./download/$apk_name" > /dev/null 2>&1
+		rm -f "./download/$apk_name.apk"
 	fi
 }
 
-# Download files from Telegram channel/group
-# Required secret in github setting TDL_BACKUP base64 backup file from https://docs.iyear.me/tdl/more/cli/tdl_backup/
-# You must login your telegram (recommend use clone account) before backup https://docs.iyear.me/tdl/getting-started/quick-start/#login
 telegram_dl() {
 	local chat_id="$1" num_posts="$2" file_pattern="$3" out_name="$4"
 
@@ -808,7 +794,7 @@ patch() {
 			unset CI GITHUB_ACTION GITHUB_ACTIONS GITHUB_ACTOR GITHUB_ENV GITHUB_EVENT_NAME GITHUB_EVENT_PATH GITHUB_HEAD_REF GITHUB_JOB GITHUB_REF GITHUB_REPOSITORY GITHUB_RUN_ID GITHUB_RUN_NUMBER GITHUB_SHA GITHUB_WORKFLOW GITHUB_WORKSPACE RUN_ID RUN_NUMBER
 		fi
 		eval java -jar *cli*.jar $p$b $m$opt --out=./release/$1-$2.apk$excludePatches$includePatches$ks $pu$force $a./download/$1.apk
-  		unset version
+ 		unset version
 		unset lock_version
 		unset excludePatches
 		unset includePatches
@@ -828,7 +814,7 @@ patch_multi() {
 			mpp_args="$mpp_args -p \"$mpp_file\"$excludePatches$includePatches"
 		done
 		eval java -jar *cli*.jar patch $mpp_args --options-file ./src/options/$2.json --out=./release/$1-$2.apk --keystore=./src/morphe.keystore --purge=true --force --continue-on-error ./download/$1.apk
-  		unset version
+ 		unset version
 		unset lock_version
 		unset excludePatches
 		unset includePatches
@@ -861,66 +847,80 @@ npatch() {
 		exit 1
 	fi
 }
+
 #################################################
 
 split_editor() {
-    if [[ -z "$3" || -z "$4" ]]; then
-        green_log "[+] Merge splits apk to standalone apk"
-        java -jar $APKEditor m -i "./download/$1" -o "./download/$1.apk" > /dev/null 2>&1
-        return 0
-    fi
-    IFS=' ' read -r -a include_files <<< "$4"
-    mkdir -p "./download/$2"
-    for file in "./download/$1"/*.apk; do
-        filename=$(basename "$file")
-        basename_no_ext="${filename%.apk}"
-        if [[ "$filename" == "base.apk" ]]; then
-            cp -f "$file" "./download/$2/" > /dev/null 2>&1
-            continue
-        fi
-        if [[ "$3" == "include" ]]; then
-            if [[ " ${include_files[*]} " =~ " ${basename_no_ext} " ]]; then
-                cp -f "$file" "./download/$2/" > /dev/null 2>&1
-            fi
-        elif [[ "$3" == "exclude" ]]; then
-            if [[ ! " ${include_files[*]} " =~ " ${basename_no_ext} " ]]; then
-                cp -f "$file" "./download/$2/" > /dev/null 2>&1
-            fi
-        fi
+    local input_dir=$1
+    local output_name=$2
+    local patch_profile=$3
+    local patch_engine=$4
+
+    green_log "[+] Backing up original arm64-v8a native libraries..."
+    local lib_backup="./download/native_libs_backup"
+    rm -rf "$lib_backup" && mkdir -p "$lib_backup"
+    
+    # Extract native libraries from splits cleanly
+    for split in "./download/$input_dir"/*.apk; do
+        unzip -o "$split" "lib/arm64-v8a/*" -d "$lib_backup/" > /dev/null 2>&1 || true
     done
 
-    green_log "[+] Merge splits apk to standalone apk"
-    java -jar $APKEditor m -i ./download/$2 -o ./download/$2.apk > /dev/null 2>&1
+    green_log "[+] Merging Google Play splits into standalone APK via APKEditor"
+    rm -f "./download/$output_name.apk"
+    
+    # FIX: Changed $TXT_APKEditor to $APKEditor
+    java -jar "$APKEditor" m -i "./download/$input_dir" -o "./download/$output_name.apk"
+    
+    if [[ $? -ne 0 ]]; then
+        red_log "[-] APKEditor merge failed"
+        rm -rf "$lib_backup"
+        return 1
+    fi
+
+    # Execute patching inline and synchronously
+    patch "$output_name" "$patch_profile" "$patch_engine"
+
+    local target_patch_apk="./release/${output_name}-${patch_profile}.apk"
+
+    if [[ -f "$target_patch_apk" ]]; then
+        green_log "[+] Patched APK found! Injecting native libraries..."
+        
+        # 1. Inject native libs back into the compiled APK uncompressed (-0)
+        cd "$lib_backup" || return 1
+        zip -0ur "../.${target_patch_apk}" "lib/arm64-v8a/"* > /dev/null 2>&1
+        cd ../../
+        
+        # 2. Force the Manifest properties to extract native libraries on installation
+        java -jar "$APKEditor" p -i "$target_patch_apk" -o "${target_patch_apk}.mod" -u "extractNativeLibs=true" > /dev/null 2>&1
+        
+        if [[ -f "${target_patch_apk}.mod" ]]; then
+            # 3. Align the APK structure (Crucial for uncompressed zip assets)
+            zipalign -f -p 4 "${target_patch_apk}.mod" "${target_patch_apk}.aligned"
+            
+            # 4. Handle temporary cryptographic Keystore generation
+            local temp_ks="./src/build/auto_generated_debug.keystore"
+            if [[ ! -f "$temp_ks" ]]; then
+                mkdir -p "./src/build"
+                keytool -genkey -v -keystore "$temp_ks" -storepass android -alias debug -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US" > /dev/null 2>&1
+            fi
+
+            # 5. Authorize and seal the package signature
+            if command -v apksigner &> /dev/null; then
+                apksigner sign --ks-key-alias debug --ks "$temp_ks" --ks-pass pass:android "${target_patch_apk}.aligned" > /dev/null 2>&1
+                mv -f "${target_patch_apk}.aligned" "$target_patch_apk"
+                green_log "[+] Repair complete! Standalone APK sealed with native libraries."
+            else
+                mv -f "${target_patch_apk}.aligned" "$target_patch_apk"
+                yellow_log "[!] apksigner missing from runner environment, manual signing required."
+            fi
+            rm -f "${target_patch_apk}.mod"
+        else
+            red_log "[-] Failed to modify manifest properties via APKEditor safely."
+        fi
+    else
+        red_log "[-] Target compilation file was not found."
+    fi
+
+    rm -rf "$lib_backup"
+    return 0
 }
-
-#################################################
-
-archs=("arm64-v8a" "armeabi-v7a" "x86_64" "x86")
-libs=("armeabi-v7a x86_64 x86" "arm64-v8a x86_64 x86" "armeabi-v7a arm64-v8a x86" "armeabi-v7a arm64-v8a x86_64")
-
-# Remove unused architectures directly
-apk_editor() {
-	local apk="$1" keep="$2"; shift 2
-	local dir="./download/$apk"
-	rm -rf "$dir" && unzip -q "./download/$apk.apk" -d "$dir" || return 1
-	for r in "$@"; do rm -rf "$dir/lib/$r"; done
-	(cd "$dir" && zip -qr "../$apk-$keep.apk" .)
-}
-
-# Split architectures using Morphe cli
-split_arch() {
-	green_log "[+] Splitting $1 to ${archs[i]}:"
-	if [ -f "./download/$1.apk" ]; then
-		eval java -jar *cli*.jar patch \
-		-p *.mpp $excludePatches$includePatches--options-file ./src/options/$2.json \
-		--striplibs ${archs[i]} --purge=true \
-		--keystore=./src/morphe.keystore --force \
-		--out=./release/$1-${archs[i]}-$2.apk\
-		./download/$1.apk
-	else
-		red_log "[-] Not found $1.apk"
-		exit 1
-	fi
-}
-
-#################################################
